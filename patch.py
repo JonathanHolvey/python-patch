@@ -870,63 +870,13 @@ class PatchSet(object):
 
       # validate before patching
       f2fp = open(filename, 'rb')
-      hunkno = 0
-      hunk = p.hunks[hunkno]
-      hunkfind = []
-      hunkreplace = []
       validhunks = 0
       canpatch = False
+      # Prepare hunk data here for concurrent validation
+
       for lineno, line in enumerate(f2fp):
-        if lineno+1 < hunk.startsrc:
-          continue
-        elif lineno+1 == hunk.startsrc:
-          hunkfind = [x[1:].rstrip(b"\r\n") for x in hunk.text if x[0] in b" -"]
-          hunkreplace = [x[1:].rstrip(b"\r\n") for x in hunk.text if x[0] in b" +"]
-          #pprint(hunkreplace)
-          hunklineno = 0
-
-          # todo \ No newline at end of file
-
-        # check hunks in source file
-        if lineno+1 < hunk.startsrc+len(hunkfind)-1:
-          if line.rstrip(b"\r\n") == hunkfind[hunklineno]:
-            hunklineno+=1
-          else:
-            info("file %d/%d:\t %s" % (i+1, total, filename))
-            info(" hunk no.%d doesn't match source file at line %d" % (hunkno+1, lineno+1))
-            info("  expected: %s" % hunkfind[hunklineno])
-            info("  actual  : %s" % line.rstrip(b"\r\n"))
-            # not counting this as error, because file may already be patched.
-            # check if file is already patched is done after the number of
-            # invalid hunks if found
-            # TODO: check hunks against source/target file in one pass
-            #   API - check(stream, srchunks, tgthunks)
-            #           return tuple (srcerrs, tgterrs)
-
-            # continue to check other hunks for completeness
-            hunkno += 1
-            if hunkno < len(p.hunks):
-              hunk = p.hunks[hunkno]
-              continue
-            else:
-              break
-
-        # check if processed line is the last line
-        if lineno+1 == hunk.startsrc+len(hunkfind)-1:
-          debug(" hunk no.%d for file %s  -- is ready to be patched" % (hunkno+1, filename))
-          hunkno+=1
-          validhunks+=1
-          if hunkno < len(p.hunks):
-            hunk = p.hunks[hunkno]
-          else:
-            if validhunks == len(p.hunks):
-              # patch file
-              canpatch = True
-              break
-      else:
-        if hunkno < len(p.hunks):
-          warning("premature end of source file %s at hunk %d" % (filename, hunkno+1))
-          errors += 1
+      	# Check all hunks concurrently here, irrespective of line number and order
+      	# Don't forget to include debug messages...
 
       f2fp.close()
 
