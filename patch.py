@@ -697,8 +697,8 @@ class PatchSet(object):
     for i,p in enumerate(self.items):
       if debugmode:
         debug("    patch type = " + p.type)
-        debug("    source = " + p.source)
-        debug("    target = " + p.target)
+        debug("    source = " + p.source.decode("utf-8"))
+        debug("    target = " + p.target.decode("utf-8"))
       if p.type in (HG, GIT):
         # TODO: figure out how to deal with /dev/null entries
         debug("stripping a/ and b/ prefixes")
@@ -870,13 +870,37 @@ class PatchSet(object):
 
       # validate before patching
       f2fp = open(filename, 'rb')
+      hunktext = []
+      hunkindex = []
+      hunkmatch = []
       validhunks = 0
       canpatch = False
-      # Prepare hunk data here for concurrent validation
+      # Prepare hunk data for concurrent validation
+      for hunkno, hunk in enumerate(p.hunks):
+        hunktext += [x[1:].rstrip(b"\r\n") for x in hunk.text if x[0] in b" -"]
+        hunkindex += [(hunkno, hunkline) for hunkline in range(hunk.linessrc)]
 
       for lineno, line in enumerate(f2fp):
-      	# Check all hunks concurrently here, irrespective of line number and order
-      	# Don't forget to include debug messages...
+        # Check all hunks concurrently, irrespective of line number and order
+        line = line.rstrip(b"\r\n")
+        if line in hunktext:
+          # Add all matching hunk start lines to hunkmatch list
+          hunkmatch += [{"hunk": hunkindex[i][0], "length": 0, "start": lineno, "valid": None}
+              for i, x in enumerate(hunktext) if line == x and hunkindex[i][1] == 0]
+          # Check each hunk match which hasn't already been validated
+          for match in (m for m in hunkmatch if m["valid"] is None):
+            hunkno = match["hunk"]
+            hunkline = match["length"]
+            if line == hunktext[hunkindex.index((hunkno, hunkline))]:
+              match["length"] += 1
+              info("Found line {} of hunk {} at line {}: {}".format(hunkline+1, hunkno+1, lineno+1, line))
+              if match["length"] == p.hunks[hunkno].linessrc:
+                match["valid"] = True
+                info("Hunk {} validated successfully".format(hunkno+1))
+            else:
+              match["valid"] = False
+
+        # Don't forget to include debug messages...
 
       f2fp.close()
 
