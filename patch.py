@@ -917,10 +917,12 @@ class PatchSet(object):
       # Check for conflicting hunk offsets which will modify the same line
       offsets = [sorted(x, key=abs) for x in offsets]
       for offsetmix in itertools.product(*offsets):
-        lineno = -1
+        patchlines = []
         for hunkno, hunk in enumerate(p.hunks):
-          if lineno < hunk.startsrc + context[hunkno][0] + offsetmix[hunkno]:
-            lineno = hunk.startsrc + hunk.linessrc - sum(context[hunkno])
+          hunklines = list(range(hunk.startsrc + context[hunkno][0] + offsetmix[hunkno],
+                                 hunk.startsrc + hunk.linessrc - context[hunkno][1] + offsetmix[hunkno]))
+          if len(set(patchlines).intersection(hunklines)) == 0:
+            patchlines += hunklines
             # Stop searching if the last hunk is reached without conflicts
             if hunkno == len(p.hunks) - 1:
               canpatch = True
