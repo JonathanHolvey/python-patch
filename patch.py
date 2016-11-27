@@ -961,7 +961,7 @@ class PatchSet(object):
       if line in hunktext:
         # Add all matching hunk start lines to matches list
         matches += [{"hunk": hunkindex[i][0], "length": 0, "start": lineno,
-                     "offset": lineno - hunks[hunkindex[i][0]].startsrc, "valid": None}
+                     "offset": lineno - hunks[hunkindex[i][0]].startsrc + 1, "valid": None}
                     for i, x in enumerate(hunktext) if line == x and hunkindex[i][1] == 0]
         # Check each hunk match which hasn't already been validated
         for match in (m for m in matches if m["valid"] is None):
@@ -971,37 +971,35 @@ class PatchSet(object):
             match["length"] += 1
             if match["length"] == hunks[hunkno].linessrc:
               match["valid"] = True
-              debug("hunk {} matched at line {} with offset {}".format(hunkno+1, match["start"], match["offset"]))
+              debug("hunk {} matched at line {} with offset {}".format(hunkno+1, match["start"]+1, match["offset"]))
           else:
             match["valid"] = False
     f2fp.close()
 
     # Discard invalid hunk matches
     matches = [m for m in matches if m["valid"] is True]
-    # Calculate offsets between patch hunks and matched hunks
-    offsets = [[]] * len(hunks)
+    # Group matches by hunk number
+    hunkmatches = [list() for x in range(len(hunks))]
     for match in matches:
-      offset = hunks[match["hunk"]].startsrc - match["start"]
-      offsets[match["hunk"]].append(offset)
-    validhunks = sum([1 for x in offsets if len(x) > 0])
-    info("Valid hunks: {}".format(validhunks))
+      hunkmatches[match["hunk"]].append(match)
+    validhunks = sum([1 for x in hunkmatches if len(x) > 0])
     if validhunks < len(hunks):
-      failedhunks = [str(hunkno+1) for hunkno, x in enumerate(offsets) if len(x) == 0]
-      debug("check failed - hunks not matched: {}".format(", ".join(failedhunks)))
+      failedhunks = [str(hunkno+1) for hunkno, x in enumerate(hunkmatches) if len(x) == 0]
+      debug("check failed - hunk{} {} not matched".format("s" if len(failedhunks) > 1 else "", ", ".join(failedhunks)))
       return False
 
     # Check for conflicting hunk offsets which will modify the same line
-    offsets = [sorted(x, key=abs) for x in offsets]
-    for offsetmix in itertools.product(*offsets):
+    hunkoffsets = [sorted([x["offset"] for x in y], key=abs) for y in hunkmatches]
+    for offsets in itertools.product(*hunkoffsets):
       patchlines = []
       for hunkno, hunk in enumerate(hunks):
-        hunklines = list(range(hunk.startsrc + context[hunkno][0] + offsetmix[hunkno],
-                               hunk.startsrc + hunk.linessrc - context[hunkno][1] + offsetmix[hunkno]))
+        hunklines = list(range(hunk.startsrc + context[hunkno][0] + offsets[hunkno],
+                               hunk.startsrc + hunk.linessrc - context[hunkno][1] + offsets[hunkno]))
         if len(set(patchlines).intersection(hunklines)) == 0:
           patchlines += hunklines
           # Stop searching if the last hunk is reached without conflicts
           if hunkno == len(hunks) - 1:
-            for hunkno, offset in enumerate(offsetmix):
+            for hunkno, offset in enumerate(offsets):
               hunks[hunkno].offset = offset
               return hunks  # Return hunk objects, including new offset values
         else:
