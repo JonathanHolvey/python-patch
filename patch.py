@@ -871,78 +871,16 @@ class PatchSet(object):
       debug("processing %d/%d:\t %s" % (i+1, total, filename))
 
       # validate before patching
-      f2fp = open(filename, 'rb')
-      hunktext = []
-      hunkindex = []
-      context = []
-      matches = []
       canpatch = False
-      # Prepare hunk data for concurrent validation
-      for hunkno, hunk in enumerate(p.hunks):
-        hunktext += [x[1:].rstrip(b"\r\n") for x in hunk.text if x[0] in b" -"]
-        hunkindex += [(hunkno, hunkline) for hunkline in range(hunk.linessrc)]
-        # Count context lines before and after each hunk
-        context.append([[x[0:1] if x[0] in b" -" else b"-" for x in hunk.text].index(b"-"),
-                       [y[0:1] if y[0] in b" -" else b"-" for y in reversed(hunk.text)].index(b"-")])
-
-      for lineno, line in enumerate(f2fp):
-        # Check all hunks concurrently, irrespective of line number and order
-        line = line.rstrip(b"\r\n")
-        if line in hunktext:
-          # Add all matching hunk start lines to matches list
-          matches += [{"hunk": hunkindex[i][0], "length": 0, "start": lineno, "valid": None}
-              for i, x in enumerate(hunktext) if line == x and hunkindex[i][1] == 0]
-          # Check each hunk match which hasn't already been validated
-          for match in (m for m in matches if m["valid"] is None):
-            hunkno = match["hunk"]
-            hunkline = match["length"]
-            if line == hunktext[hunkindex.index((hunkno, hunkline))]:
-              match["length"] += 1
-              if match["length"] == p.hunks[hunkno].linessrc:
-                match["valid"] = True
-                info("Hunk {} validated successfully at line {}".format(hunkno+1, match["start"]))
-            else:
-              match["valid"] = False
-      f2fp.close()
-
-      # Discard invalid hunk matches
-      matches = [m for m in matches if m["valid"] is True]
-      # Calculate offsets between patch hunks and matched hunks
-      offsets = [[]] * len(p.hunks)
-      for match in matches:
-        offset = p.hunks[match["hunk"]].startsrc - match["start"]
-        offsets[match["hunk"]].append(offset)
-      validhunks = sum([1 for x in offsets if len(x) > 0])
-
-      # Check for conflicting hunk offsets which will modify the same line
-      offsets = [sorted(x, key=abs) for x in offsets]
-      for offsetmix in itertools.product(*offsets):
-        patchlines = []
-        for hunkno, hunk in enumerate(p.hunks):
-          hunklines = list(range(hunk.startsrc + context[hunkno][0] + offsetmix[hunkno],
-                                 hunk.startsrc + hunk.linessrc - context[hunkno][1] + offsetmix[hunkno]))
-          if len(set(patchlines).intersection(hunklines)) == 0:
-            patchlines += hunklines
-            # Stop searching if the last hunk is reached without conflicts
-            if hunkno == len(p.hunks) - 1:
-              canpatch = True
-          else:
-            break
-        else:
-          if canpatch:
-            # Save valid offsets to hunks
-            for hunkno, offset in enumerate(offsetmix):
-              p.hunks[hunkno].offset = offset
-            break
+      hunks = self._match_file_hunks(filename, p.hunks)
+      if hunks is not False:
+        p.hunks = hunks
+        canpatch = True
+      else:
+        errors += 1
 
       canpatch = False  # Don't patch; not ready yet
 
-      if validhunks < len(p.hunks):
-        if self._match_file_hunks(filename, p.hunks):
-          warning("already patched  %s" % filename)
-        else:
-          warning("source file is different - %s" % filename)
-          errors += 1
       if canpatch:
         backupname = filename+b".orig"
         if exists(backupname):
@@ -999,48 +937,77 @@ class PatchSet(object):
     filename = abspath(filename)
     for p in self.items:
       if filename == abspath(p.source):
-        return self._match_file_hunks(filename, p.hunks)
+        return self._match_file_hunks(filename, p.hunks) is not False
     return None
 
 
   def _match_file_hunks(self, filepath, hunks):
-    matched = True
-    fp = open(abspath(filepath), 'rb')
+    f2fp = open(filepath, 'rb')
+    hunktext = []
+    hunkindex = []
+    context = []
+    matches = []
+    # Prepare hunk data for concurrent validation
+    for hunkno, hunk in enumerate(hunks):
+      hunktext += [x[1:].rstrip(b"\r\n") for x in hunk.text if x[0] in b" -"]
+      hunkindex += [(hunkno, hunkline) for hunkline in range(hunk.linessrc)]
+      # Count context lines before and after each hunk
+      context.append([[x[0:1] if x[0] in b" -" else b"-" for x in hunk.text].index(b"-"),
+                     [y[0:1] if y[0] in b" -" else b"-" for y in reversed(hunk.text)].index(b"-")])
 
-    class NoMatch(Exception):
-      pass
+    for lineno, line in enumerate(f2fp):
+      # Check all hunks concurrently, irrespective of line number and order
+      line = line.rstrip(b"\r\n")
+      if line in hunktext:
+        # Add all matching hunk start lines to matches list
+        matches += [{"hunk": hunkindex[i][0], "length": 0, "start": lineno,
+                     "offset": lineno - hunks[hunkindex[i][0]].startsrc, "valid": None}
+                    for i, x in enumerate(hunktext) if line == x and hunkindex[i][1] == 0]
+        # Check each hunk match which hasn't already been validated
+        for match in (m for m in matches if m["valid"] is None):
+          hunkno = match["hunk"]
+          hunkline = match["length"]
+          if line == hunktext[hunkindex.index((hunkno, hunkline))]:
+            match["length"] += 1
+            if match["length"] == hunks[hunkno].linessrc:
+              match["valid"] = True
+              debug("hunk {} matched at line {} with offset {}".format(hunkno+1, match["start"], match["offset"]))
+          else:
+            match["valid"] = False
+    f2fp.close()
 
-    lineno = 1
-    line = fp.readline()
-    hno = None
-    try:
-      for hno, h in enumerate(hunks):
-        # skip to first line of the hunk
-        while lineno < h.starttgt:
-          if not len(line): # eof
-            debug("check failed - premature eof before hunk: %d" % (hno+1))
-            raise NoMatch
-          line = fp.readline()
-          lineno += 1
-        for hline in h.text:
-          if hline.startswith(b"-"):
-            continue
-          if not len(line):
-            debug("check failed - premature eof on hunk: %d" % (hno+1))
-            # todo: \ No newline at the end of file
-            raise NoMatch
-          if line.rstrip(b"\r\n") != hline[1:].rstrip(b"\r\n"):
-            debug("file is not patched - failed hunk: %d" % (hno+1))
-            raise NoMatch
-          line = fp.readline()
-          lineno += 1
+    # Discard invalid hunk matches
+    matches = [m for m in matches if m["valid"] is True]
+    # Calculate offsets between patch hunks and matched hunks
+    offsets = [[]] * len(hunks)
+    for match in matches:
+      offset = hunks[match["hunk"]].startsrc - match["start"]
+      offsets[match["hunk"]].append(offset)
+    validhunks = sum([1 for x in offsets if len(x) > 0])
+    info("Valid hunks: {}".format(validhunks))
+    if validhunks < len(hunks):
+      failedhunks = [str(hunkno+1) for hunkno, x in enumerate(offsets) if len(x) == 0]
+      debug("check failed - hunks not matched: {}".format(", ".join(failedhunks)))
+      return False
 
-    except NoMatch:
-      matched = False
-      # todo: display failed hunk, i.e. expected/found
-
-    fp.close()
-    return matched
+    # Check for conflicting hunk offsets which will modify the same line
+    offsets = [sorted(x, key=abs) for x in offsets]
+    for offsetmix in itertools.product(*offsets):
+      patchlines = []
+      for hunkno, hunk in enumerate(hunks):
+        hunklines = list(range(hunk.startsrc + context[hunkno][0] + offsetmix[hunkno],
+                               hunk.startsrc + hunk.linessrc - context[hunkno][1] + offsetmix[hunkno]))
+        if len(set(patchlines).intersection(hunklines)) == 0:
+          patchlines += hunklines
+          # Stop searching if the last hunk is reached without conflicts
+          if hunkno == len(hunks) - 1:
+            for hunkno, offset in enumerate(offsetmix):
+              hunks[hunkno].offset = offset
+              return hunks  # Return hunk objects, including new offset values
+        else:
+          break
+    debug("file cannot be patched - hunks conflict")
+    return False
 
 
   def patch_stream(self, instream, hunks):
