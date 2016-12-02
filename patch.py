@@ -1002,10 +1002,10 @@ class PatchSet(object):
         if len(set(patchlines).intersection(hunklines)) == 0:
           patchlines += hunklines
           # Stop searching if the last hunk is reached without conflicts
-          if hunkno == len(hunks) - 1:
+          if hunkno + 1 == len(hunks):
             for hunkno, offset in enumerate(offsets):
               hunks[hunkno].offset = offset
-              return hunks  # Return hunk objects, including new offset values
+            return hunks  # Return hunk objects, including new offset values
         else:
           break
     debug("file cannot be patched - hunks conflict")
