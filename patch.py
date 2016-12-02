@@ -887,8 +887,6 @@ class PatchSet(object):
       else:
         errors += 1
 
-      canpatch = False  # Don't patch; not ready yet
-
       if canpatch:
         backupname = filename+b".orig"
         if exists(backupname):
@@ -1023,7 +1021,7 @@ class PatchSet(object):
     #       at the start and at the end of patching. Also issue a
     #       warning/throw about mixed lineends (is it really needed?)
 
-    hunks = iter(hunks)
+    hunks = iter(sorted(hunks, key=lambda x: x.startsrc + x.offset + x.contextstart))
 
     srclineno = 1
 
@@ -1044,13 +1042,12 @@ class PatchSet(object):
       return line
 
     for hno, h in enumerate(hunks):
-      debug("hunk %d" % (hno+1))
       # skip to line just before hunk starts
-      while srclineno < h.startsrc:
+      while srclineno < h.startsrc + h.offset + h.contextstart:
         yield get_line()
         srclineno += 1
 
-      for hline in h.text:
+      for hline in h.text[h.contextstart:-h.contextend]:
         # todo: check \ No newline at the end of file
         if hline.startswith(b"-") or hline.startswith(b"\\"):
           get_line()
