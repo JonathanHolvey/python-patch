@@ -217,6 +217,8 @@ class Hunk(object):
     self.desc=''
     self.text=[]
     self.offset = 0
+    self.contextstart = None
+    self.contextend = None
 
 #  def apply(self, estream):
 #    """ write hunk data into enumerable stream
@@ -602,6 +604,12 @@ class PatchSet(object):
     if debugmode and len(self.items) > 0:
         debug("- %2d hunks for %s" % (len(p.hunks), p.source))
 
+    # Count context lines at the beginning and end of each hunk
+    for p in self.items:
+      for hunk in p.hunks:
+        hunk.contextstart = [x[0:1] if x[0] in b" -" else b"-" for x in hunk.text].index(b"-")
+        hunk.contextend   = [x[0:1] if x[0] in b" -" else b"-" for x in reversed(hunk.text)].index(b"-")
+
     # XXX fix total hunks calculation
     debug("total files: %d  total hunks: %d" % (len(self.items),
         sum(len(p.hunks) for p in self.items)))
@@ -945,15 +953,11 @@ class PatchSet(object):
     f2fp = open(filepath, 'rb')
     hunktext = []
     hunkindex = []
-    context = []
     matches = []
     # Prepare hunk data for concurrent validation
     for hunkno, hunk in enumerate(hunks):
       hunktext += [x[1:].rstrip(b"\r\n") for x in hunk.text if x[0] in b" -"]
       hunkindex += [(hunkno, hunkline) for hunkline in range(hunk.linessrc)]
-      # Count context lines before and after each hunk
-      context.append([[x[0:1] if x[0] in b" -" else b"-" for x in hunk.text].index(b"-"),
-                     [y[0:1] if y[0] in b" -" else b"-" for y in reversed(hunk.text)].index(b"-")])
 
     for lineno, line in enumerate(f2fp):
       # Check all hunks concurrently, irrespective of line number and order
@@ -993,8 +997,8 @@ class PatchSet(object):
     for offsets in itertools.product(*hunkoffsets):
       patchlines = []
       for hunkno, hunk in enumerate(hunks):
-        hunklines = list(range(hunk.startsrc + context[hunkno][0] + offsets[hunkno],
-                               hunk.startsrc + hunk.linessrc - context[hunkno][1] + offsets[hunkno]))
+        hunklines = list(range(hunk.startsrc + hunk.contextstart + offsets[hunkno],
+                               hunk.startsrc + hunk.linessrc - hunk.contextend + offsets[hunkno]))
         if len(set(patchlines).intersection(hunklines)) == 0:
           patchlines += hunklines
           # Stop searching if the last hunk is reached without conflicts
