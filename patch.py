@@ -1003,6 +1003,8 @@ class PatchSet(object):
           if hunkno + 1 == len(hunks):
             for hunkno, offset in enumerate(offsets):
               hunks[hunkno].offset = offset
+              if offset != 0:
+                info("hunk {} offset by {:+} lines".format(hunkno+1, offset))
             return hunks  # Return hunk objects, including new offset values
         else:
           break
