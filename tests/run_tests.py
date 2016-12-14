@@ -37,6 +37,7 @@ import re
 import shutil
 import unittest
 import copy
+import subprocess
 from os import listdir
 from os.path import abspath, dirname, exists, join, isdir, isfile
 from tempfile import mkdtemp
@@ -152,11 +153,11 @@ class TestPatchFiles(unittest.TestCase):
       save_cwd = getcwdu()
       os.chdir(tmpdir)
       if verbose:
-        cmd = '%s %s "%s"' % (sys.executable, patch_tool, patch_file)
-        print("\n"+cmd)
+        cmd = [sys.executable, patch_tool, patch_file]
+        print("\n"+" ".join(cmd))
       else:
-        cmd = '%s %s -q "%s"' % (sys.executable, patch_tool, patch_file)
-      ret = os.system(cmd)
+        cmd = [sys.executable, patch_tool, "-q", patch_file]
+      ret = subprocess.call(cmd)
       assert ret == 0, "Error %d running test %s" % (ret, testname)
       os.chdir(save_cwd)
 
