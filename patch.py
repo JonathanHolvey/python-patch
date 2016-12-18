@@ -820,7 +820,7 @@ class PatchSet(object):
     else:
       # [w] Google Code generates broken patches with its online editor
       debug("broken patch from Google Code, stripping prefixes..")
-      if old.startswith(b'a/') and new.startswith(b'b/'):
+      if old.startswith('a/') and new.startswith('b/'):
         old, new = old[2:], new[2:]
         debug("   %s" % old)
         debug("   %s" % new)
@@ -864,7 +864,7 @@ class PatchSet(object):
       else:
         old, new = p.source, p.target
 
-      filename = self.findfile(old, new)
+      filename = self.findfile(old.decode("utf-8"), new.decode("utf-8"))
 
       if not filename:
           warning("source/target file does not exist:\n  --- %s\n  +++ %s" % (old, new))
@@ -888,7 +888,7 @@ class PatchSet(object):
         errors += 1
 
       if canpatch:
-        backupname = filename+b".orig"
+        backupname = filename+".orig"
         if exists(backupname):
           warning("can't backup original file to %s - aborting" % backupname)
         else:
@@ -942,7 +942,7 @@ class PatchSet(object):
     """
     filename = abspath(filename)
     for p in self.items:
-      if filename == abspath(p.source):
+      if filename == abspath(p.source.decode("utf-8")):
         return self._match_file_hunks(filename, p.hunks) is not False
     return None
 

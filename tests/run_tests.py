@@ -37,6 +37,7 @@ import re
 import shutil
 import unittest
 import copy
+import subprocess
 from os import listdir
 from os.path import abspath, dirname, exists, join, isdir, isfile
 from tempfile import mkdtemp
@@ -152,11 +153,11 @@ class TestPatchFiles(unittest.TestCase):
       save_cwd = getcwdu()
       os.chdir(tmpdir)
       if verbose:
-        cmd = '%s %s "%s"' % (sys.executable, patch_tool, patch_file)
-        print("\n"+cmd)
+        cmd = [sys.executable, patch_tool, patch_file]
+        print("\n"+" ".join(cmd))
       else:
-        cmd = '%s %s -q "%s"' % (sys.executable, patch_tool, patch_file)
-      ret = os.system(cmd)
+        cmd = [sys.executable, patch_tool, "-q", patch_file]
+      ret = subprocess.call(cmd)
       assert ret == 0, "Error %d running test %s" % (ret, testname)
       os.chdir(save_cwd)
 
@@ -213,21 +214,21 @@ class TestCheckPatched(unittest.TestCase):
     def test_patched_multipatch(self):
         pto = patch.fromfile("01uni_multi/01uni_multi.patch")
         os.chdir(join(TESTS, "01uni_multi", "[result]"))
-        self.assertTrue(pto.can_patch(b"updatedlg.cpp"))
+        self.assertTrue(pto.can_patch("updatedlg.cpp"))
 
     def test_can_patch_single_source(self):
         pto2 = patch.fromfile("02uni_newline.patch")
-        self.assertTrue(pto2.can_patch(b"02uni_newline.from"))
+        self.assertTrue(pto2.can_patch("02uni_newline.from"))
 
     def test_can_patch_fails_on_target_file(self):
         pto3 = patch.fromfile("03trail_fname.patch")
-        self.assertEqual(None, pto3.can_patch(b"03trail_fname.to"))
-        self.assertEqual(None, pto3.can_patch(b"not_in_source.also"))
+        self.assertEqual(None, pto3.can_patch("03trail_fname.to"))
+        self.assertEqual(None, pto3.can_patch("not_in_source.also"))
    
     def test_multiline_false_on_other_file(self):
         pto = patch.fromfile("01uni_multi/01uni_multi.patch")
         os.chdir(join(TESTS, "01uni_multi"))
-        self.assertFalse(pto.can_patch(b"updatedlg.cpp"))
+        self.assertFalse(pto.can_patch("updatedlg.cpp"))
 
     def test_single_false_on_other_file(self):
         pto3 = patch.fromfile("03trail_fname.patch")
